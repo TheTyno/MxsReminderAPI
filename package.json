@@ -1,0 +1,20 @@
+{
+  "name": "mxsreminderapi",
+  "version": "1.0.0",
+  "description": "MxsReminder API",
+  "main": "index.js",
+  "dependencies": {
+    "nodemailer": "^6.3.0",
+    "package.json": "^2.0.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "no"
+  },
+  "author": "Roberto Dieguez",
+  "license": "MIT"
+}

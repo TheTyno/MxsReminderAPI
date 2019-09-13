@@ -1,8 +1,80 @@
 const admin = require("firebase-admin");
-
 const functions = require("firebase-functions");
-
 admin.initializeApp();
+const nodemailer = require("nodemailer");
+
+async function emailSender(email, emailSubject, body) {
+  const transporter = nodemailer.createTransport({
+    host: "email-smtp.us-east-1.amazonaws.com",
+    port: 465,
+    secure: true,
+    auth: {
+      user: "AKIATUS43NWQNUS24FPK",
+      pass: "BOqD/hhoAbRvR66xKlgmnXbcILmJeYo7cRMUB+QvQjDP"
+    }
+  });
+
+  const mailOptions = {
+    from: '"MxsReminder" <no-reply@mxsreminder.com>',
+    bcc: email,
+    subject: emailSubject,
+    text: "Hello?",
+    html: body
+  };
+  const response = await transporter.sendMail(mailOptions);
+
+  return response.messageId;
+}
+
+async function eventReminder(event) {
+  const emails = [];
+  const eventSubject = `${event.type} today at ${event.hour}!`;
+  const eventBody = `<div><p>Hello Mx Simulator Community! Today ${event.firstName +
+    " " +
+    event.lastName} will host
+  an event. Details below.</p>
+  <ul>
+    <li><b>Event:</b> ${event.type}</li>
+    <li><b>Hour:</b> ${event.hour}</li>
+    <li><b>Server:</b> ${event.server}</li>
+    <li><b>Track Name:</b> ${event.track}</li>
+    <li><b>Track Link:</b> ${event.tracklink}</li>
+    <li><b>Bikes allowed:</b> ${event.bikes}</li>
+    <li><b>Description:</b> ${event.description}</li>
+  </ul>
+  </div>`;
+
+  await admin
+    .firestore()
+    .collection("users")
+    .get()
+    .then(querySnapshot => {
+      querySnapshot.forEach(doc => emails.push(doc.id));
+      return console.log("Emails saved in array.");
+    })
+    .catch(error => {
+      return console.log("Error trying to save emails: ", error);
+    });
+
+  async function runloop() {
+    let responses = [];
+    for (const email of emails) {
+      responses.push(
+        emailSender(email, eventSubject, eventBody).catch(error =>
+          console.log("Error trying to send email to ", email)
+        )
+      );
+    }
+
+    return await Promise.all(responses);
+  }
+
+  const status = await runloop();
+
+  console.log("status", status);
+
+  return status;
+}
 
 exports.readEvents = functions.https.onRequest((request, response) => {
   let eventsArray = [];
@@ -16,10 +88,10 @@ exports.readEvents = functions.https.onRequest((request, response) => {
         eventsArray.push(event.data());
       });
       response.send(eventsArray);
-      return console.log("Read Events");
+      return console.log("Events sent");
     })
     .catch(error => {
-      console.log(error);
+      console.log("Error trying to send events: ", error);
       response.status(500).send(error);
     });
 });
@@ -46,6 +118,9 @@ exports.createTempUser = functions.https.onRequest((request, response) => {
     email: data.email
   };
 
+  const verificationCodeBody = `<p> Hello ${user.firstName}. 
+  Here is your verification code <b>${code}</b>. So hurry up!`;
+
   console.log(data);
   const docRef = admin
     .firestore()
@@ -64,11 +139,17 @@ exports.createTempUser = functions.https.onRequest((request, response) => {
           .set(user)
           .then(docRef => {
             response.send("Document Written!");
-            return console.log(`Document Written with ID: ${docRef.id}`);
+            return emailSender(
+              user.email,
+              "Verification Code",
+              verificationCodeBody
+            ).catch(error =>
+              console.log("Error trying to send verification email: ", error)
+            );
           })
           .catch(error => {
-            response.send("Error, Could not write document");
-            console.log("Error adding document: ", error);
+            response.send("Error, Could not write temporal user");
+            console.log("Error adding temporal user: ", error);
           });
       }
       return console.log(doc.data());
@@ -82,6 +163,14 @@ exports.verifyCode = functions.https.onRequest((request, response) => {
   const code = data.code;
   const email = data.email;
   const user = { firstName: data.firstName, lastName: data.lastName };
+
+  const verifyBody = `<div>
+  <p>Hello <b>${user.firstName}</b>! Thanks for subscribing to MxsReminder! Now you will receive notifications about
+   daily eliminations and fun races. You can go to <a href = 'https://mxsreminder.com'>mxsreminder.com</a> and schedule your own
+    events as well.</p>
+    <br/>
+    <p>To unsubscribe and stop receiving this emails you can go to <a href = 'https://mxsreminder.com/unsubscribe'>mxsreminder.com/unsubscribe</a></p>
+  </div>`;
 
   function deleteTemporalCode(code) {
     admin
@@ -111,9 +200,15 @@ exports.verifyCode = functions.https.onRequest((request, response) => {
           .then(docRef => {
             response.send("Code verified!");
             deleteTemporalCode(code);
-            return console.log("Code verified!");
+            return emailSender(
+              email,
+              "Welcome to MxsReminder!",
+              verifyBody
+            ).catch(error =>
+              console.log("Error trying to send welcome email: ", error)
+            );
           })
-          .catch(error => console.log(error));
+          .catch(error => console.log("Error trying to add user: ", error));
       } else {
         response.send("Invalid code!");
       }
@@ -139,7 +234,7 @@ exports.unsubscribe = functions.https.onRequest((request, response) => {
       return response.send("Email deleted");
     })
     .catch(error => {
-      console.log(error);
+      console.log("Error trying to unsubscribe", error);
       response.send("Something went wrong");
     });
 });
@@ -173,6 +268,9 @@ exports.createTempEvent = functions.https.onRequest((request, response) => {
     bikes: data.bikes,
     description: data.description
   };
+
+  const verificationCodeBody = `<p> Hello ${event.firstName}. Here is your verification code <b>${code}</b>. Thanks for supporting MxsReminder! <3`;
+
   console.log(data);
   const docRef = admin
     .firestore()
@@ -191,7 +289,13 @@ exports.createTempEvent = functions.https.onRequest((request, response) => {
           .set(event)
           .then(docRef => {
             response.send("Event Written!");
-            return console.log(`Event Written with ID: ${docRef.id}`);
+            return emailSender(
+              event.email,
+              "Verification Code",
+              verificationCodeBody
+            ).catch(error =>
+              console.log("Error trying to send verification email: ", error)
+            );
           })
           .catch(error => {
             response.send("Error, Could not write event");
@@ -250,7 +354,8 @@ exports.verifyEvent = functions.https.onRequest((request, response) => {
           .then(docRef => {
             response.send("Code verified!");
             deleteTemporalEvent(code);
-            return console.log("Code verified!");
+            const status = eventReminder(event);
+            return console.log(status);
           })
           .catch(error => console.log(error));
       } else {
@@ -262,3 +367,17 @@ exports.verifyEvent = functions.https.onRequest((request, response) => {
       console.log("Something happened: ", error);
     });
 });
+
+exports.deleteDailyEvents = functions.pubsub
+  .schedule("0 0 * * *")
+  .onRun(context => {
+    admin
+      .firestore()
+      .collection("events")
+      .listDocuments()
+      .then(querySnapshot => {
+        querySnapshot.forEach(doc => doc.delete());
+        return console.log("Events eliminated");
+      })
+      .catch(error => console.log("error eliminando events ", error));
+  });
